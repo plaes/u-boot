@@ -33,11 +33,22 @@ static inline int ns_to_t(int nanoseconds)
 
 static u32 bin_to_mgray(int val)
 {
+	/*
+	 * OEIS A234613
+	 * Self-inverse permutation of nonnegative integers, "gray-blue" code
+	 */
 	static const u8 lookup_table[32] = {
+#if 0
 		0x00, 0x01, 0x02, 0x03, 0x06, 0x07, 0x04, 0x05,
 		0x0c, 0x0d, 0x0e, 0x0f, 0x0a, 0x0b, 0x08, 0x09,
 		0x18, 0x19, 0x1a, 0x1b, 0x1e, 0x1f, 0x1c, 0x1d,
 		0x14, 0x15, 0x16, 0x17, 0x12, 0x13, 0x10, 0x11,
+#else
+		0x00, 0x01, 0x02, 0x03, 0x06, 0x07, 0x04, 0x05,
+		0x0a, 0x0b, 0x08, 0x09, 0x0c, 0x0d, 0x0e, 0x0f,
+		0x1e, 0x1f, 0x1c, 0x1d, 0x18, 0x19, 0x1a, 0x1b,
+		0x14, 0x15, 0x16, 0x17, 0x12, 0x13, 0x10, 0x11
+#endif
 	};
 
 	return lookup_table[clamp(val, 0, 31)];
@@ -45,11 +56,24 @@ static u32 bin_to_mgray(int val)
 
 static int mgray_to_bin(u32 val)
 {
+	/*
+	 * OEIS A092569
+	 * Permutation of integers a(a(n)) = n.
+	 * In binary representation of n, transformation of inner bits,
+	 * 1 <-> 0, gives binary representation of a(n).
+	 */
 	static const u8 lookup_table[32] = {
+#if 0
 		0x00, 0x01, 0x02, 0x03, 0x06, 0x07, 0x04, 0x05,
 		0x0e, 0x0f, 0x0c, 0x0d, 0x08, 0x09, 0x0a, 0x0b,
 		0x1e, 0x1f, 0x1c, 0x1d, 0x18, 0x19, 0x1a, 0x1b,
 		0x10, 0x11, 0x12, 0x13, 0x16, 0x17, 0x14, 0x15,
+#else
+		0x00, 0x01, 0x02, 0x03, 0x06, 0x07, 0x04, 0x05,
+		0x0e, 0x0f, 0x0c, 0x0d, 0x0a, 0x0b, 0x08, 0x09,
+		0x1e, 0x1f, 0x1c, 0x1d, 0x1a, 0x1b, 0x18, 0x19,
+		0x16, 0x17, 0x14, 0x15, 0x12, 0x13, 0x10, 0x11
+#endif
 	};
 
 	return lookup_table[val & 0x1f];
@@ -62,6 +86,34 @@ static void mctl_phy_init(u32 val)
 
 	writel(val | PIR_INIT, &mctl_ctl->pir);
 	mctl_await_completion(&mctl_ctl->pgsr[0], PGSR_INIT_DONE, 0x1);
+}
+
+static void dump_zq(void)
+{
+        struct sunxi_mctl_ctl_reg * const mctl_ctl =
+                        (struct sunxi_mctl_ctl_reg *)SUNXI_DRAM_CTL0_BASE;
+
+        int i;
+        static const char *mod[3] = { "control", "DX0/DX1", "DX2/DX3" };
+        static const char *error[4] = { "\t", "overflow",
+                                        "underflow", "in progress" };
+
+        printf("== ZQ calibration %s %s ==\n",
+                                (mctl_ctl->zqsr & (1 << 31)) ? "DONE" : "",
+                                (mctl_ctl->zqsr & (1 << 30)) ? "ERROR" : "");
+
+        printf("\tODT pull-up\tODT pull-down\tDRV pull-up\tDRV pull-down\n");
+
+        for (i = 0; i < 3; i++)
+                printf("%s\t%2u  %s\t%2u  %s\t%2u  %s\t%2u  %s\n", mod[i],
+                                mgray_to_bin((mctl_ctl->zqdr[i] >> 24) & 0x1f),
+                                error[(mctl_ctl->zqsr >> (i * 8 + 6)) & 0x3],
+                                mgray_to_bin((mctl_ctl->zqdr[i] >> 16) & 0x1f),
+                                error[(mctl_ctl->zqsr >> (i * 8 + 4)) & 0x3],
+                                mgray_to_bin((mctl_ctl->zqdr[i] >> 8) & 0x1f),
+                                error[(mctl_ctl->zqsr >> (i * 8 + 2)) & 0x3],
+                                mgray_to_bin((mctl_ctl->zqdr[i] >> 0) & 0x1f),
+                                error[(mctl_ctl->zqsr >> (i * 8 + 0)) & 0x3]);
 }
 
 static void mctl_dq_delay(u32 read, u32 write)
@@ -242,10 +294,11 @@ static void mctl_zq_calibration(struct dram_para *para)
 		val = readl(&mctl_ctl->zqdr[0]) >> 24;
 		zq_val[i] |= bin_to_mgray(mgray_to_bin(val) - 1) << 8;
 	}
-
 	writel((zq_val[1] << 16) | zq_val[0], &mctl_ctl->zqdr[0]);
 	writel((zq_val[3] << 16) | zq_val[2], &mctl_ctl->zqdr[1]);
 	writel((zq_val[5] << 16) | zq_val[4], &mctl_ctl->zqdr[2]);
+
+    dump_zq();
 }
 
 static void mctl_set_cr(struct dram_para *para)
