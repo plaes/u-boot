@@ -20,6 +20,7 @@ static void getvar_product(char *var_parameter, char *response);
 static void getvar_current_slot(char *var_parameter, char *response);
 static void getvar_slot_suffixes(char *var_parameter, char *response);
 static void getvar_has_slot(char *var_parameter, char *response);
+static void getvar_ubootenv(char *var_parameter, char *response);
 #if CONFIG_IS_ENABLED(FASTBOOT_FLASH_MMC)
 static void getvar_partition_type(char *part_name, char *response);
 #endif
@@ -64,6 +65,9 @@ static const struct {
 	}, {
 		.variable = "has_slot",
 		.dispatch = getvar_has_slot
+	}, {
+		.variable = "uboot",
+		.dispatch = getvar_ubootenv
 #if CONFIG_IS_ENABLED(FASTBOOT_FLASH_MMC)
 	}, {
 		.variable = "partition-type",
@@ -80,6 +84,16 @@ static const struct {
 static void getvar_version(char *var_parameter, char *response)
 {
 	fastboot_okay(FASTBOOT_VERSION, response);
+}
+
+static void getvar_ubootenv(char *var_parameter, char *response)
+{
+	const char *value = env_get(var_parameter);
+
+	if (value)
+		fastboot_okay(value, response);
+	else
+		fastboot_fail("Variable is not set", response);
 }
 
 static void getvar_bootloader_version(char *var_parameter, char *response)
